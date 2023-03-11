@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,7 +15,32 @@ import (
 	"golang.design/x/clipboard"
 )
 
-const problemPrefixPattern = "/contest/%s/problem/"
+const (
+	problemPrefixPattern = "/contest/%s/problem/"
+	configName           = "acf-config.json"
+)
+
+var (
+	config = Config{
+		Compiler: "g++",
+		Standart: "c++17",
+	}
+)
+
+type Config struct {
+	Compiler string `json:"compiler"`
+	Standart string `json:"standart"`
+}
+
+type Verdict struct {
+	/* Solution verdict for local test */
+	OK                   bool // OK or WA
+	TestNumber           int
+	Input                string
+	Output               string
+	Answer               string
+	LinesCorrectnessMask []bool
+}
 
 type Problem struct {
 	Number  string // or letter
@@ -26,58 +52,16 @@ type Sample struct {
 	Output string
 }
 
-type Verdict struct {
-	OK                   bool
-	TestNumber           int
-	Input                string
-	Output               string
-	Answer               string
-	LinesCorrectnessMask []bool
-}
-
-func loadContest(contestNumber string) error {
-	problemsPaths, err := getProblemsPath(contestNumber)
+func loadConfig() {
+	dir, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return
 	}
-
-	for _, path := range problemsPaths {
-		number := strings.TrimPrefix(path, fmt.Sprintf(problemPrefixPattern, contestNumber))
-		problem, err := getProblem(contestNumber, number)
-		if err != nil {
-			return err
-		}
-		if err = createIOFiles(problem); err != nil {
-			return err
-		}
+	rawConfig, err := os.ReadFile(dir + "/" + configName)
+	if err != nil {
+		return
 	}
-
-	return nil
-}
-
-func createIOFiles(problem *Problem) error {
-	if err := os.Mkdir(problem.Number, os.ModePerm); err != nil {
-		return err
-	}
-
-	for i, sample := range problem.Samples {
-		fin, err := os.Create(fmt.Sprintf("./%s/%d.in", problem.Number, i+1))
-		if err != nil {
-			return err
-		}
-		defer fin.Close()
-
-		fout, err := os.Create(fmt.Sprintf("./%s/%d.out", problem.Number, i+1))
-		if err != nil {
-			return err
-		}
-		defer fout.Close()
-
-		fin.Write([]byte(sample.Input))
-		fout.Write([]byte(sample.Output))
-	}
-
-	return nil
+	json.Unmarshal(rawConfig, &config)
 }
 
 func getProblemsPath(contestNumber string) ([]string, error) {
@@ -165,42 +149,132 @@ func getProblem(contestNumber, problemNumber string) (*Problem, error) {
 	}, nil
 }
 
-func testProgram(sourceFile string) (*Verdict, error) {
-	res, err := os.Create("tmp-output.out")
+func loadContest(contestNumber string) error {
+	problemsPaths, err := getProblemsPath(contestNumber)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range problemsPaths {
+		number := strings.TrimPrefix(path, fmt.Sprintf(problemPrefixPattern, contestNumber))
+		problem, err := getProblem(contestNumber, number)
+		if err != nil {
+			return err
+		}
+		if err = createIOFiles(problem); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func createIOFiles(problem *Problem) error {
+	if err := os.Mkdir(problem.Number, os.ModePerm); err != nil {
+		return err
+	}
+
+	for i, sample := range problem.Samples {
+		fin, err := os.Create(fmt.Sprintf("./%s/%d.in", problem.Number, i+1))
+		if err != nil {
+			return err
+		}
+		defer fin.Close()
+
+		fout, err := os.Create(fmt.Sprintf("./%s/%d.out", problem.Number, i+1))
+		if err != nil {
+			return err
+		}
+		defer fout.Close()
+
+		fin.Write([]byte(sample.Input))
+		fout.Write([]byte(sample.Output))
+	}
+
+	return nil
+}
+
+func testSolution(sourceFile string) (*Verdict, error) {
+	outfile := "tmp-output.out"
+	res, err := os.Create(outfile)
 	if err != nil {
 		return nil, err
 	}
 	res.Close()
-	defer os.Remove("tmp-output.out")
+	defer os.Remove(outfile)
 
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
 		return nil, err
 	}
 
+	execute := func(filename, infile, outfile string) error {
+		compile := func(filename, infile, outfile string) (string, string, string, error) {
+			color.Green("Compiling...")
+			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s --std=%s %s", config.Compiler, config.Standart, filename))
+			if _, err := cmd.Output(); err != nil {
+				return "", "", "", errors.New("error while compiling")
+			}
+			return "./a.out", infile, outfile, nil
+		}
+
+		run := func(filename, infile, outfile string, err error) (string, error) {
+			if err != nil {
+				return "", err
+			}
+
+			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s < %s > %s", filename, infile, outfile))
+			if _, err := cmd.Output(); err != nil {
+				return "", errors.New("error while running")
+			}
+			return filename, nil
+		}
+
+		remove := func(filename string, err error) error {
+			if err != nil {
+				return err
+			}
+
+			cmd := exec.Command("bash", "-c", fmt.Sprintf("rm %s", filename))
+			if _, err := cmd.Output(); err != nil {
+				return errors.New("error while removing")
+			}
+			return nil
+		}
+
+		return remove(run(compile(filename, infile, outfile)))
+	}
+
 	for _, file := range files {
 		test := 0
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".in") {
 			test++
-			cmd := exec.Command("bash", "-c", fmt.Sprintf("g++ %s && ./a.out < %s > tmp-output.out && rm ./a.out", sourceFile, file.Name()))
-			cmd.Output()
-			userAns, err := ioutil.ReadFile("tmp-output.out")
+
+			if err := execute(sourceFile, file.Name(), outfile); err != nil {
+				return nil, err
+			}
+
+			userAns, err := ioutil.ReadFile(outfile)
 			if err != nil {
 				return nil, err
 			}
-			rightAns, err := ioutil.ReadFile(strings.TrimSuffix(file.Name(), ".in") + ".out")
+
+			rightAns, err := ioutil.ReadFile(strings.Replace(file.Name(), ".in", ".out", 1))
 			if err != nil {
 				return nil, err
 			}
+
 			inputBytes, err := ioutil.ReadFile(file.Name())
 			if err != nil {
 				return nil, err
 			}
+
 			var (
 				input  = strings.Trim(string(inputBytes), " \n\t")
 				output = strings.Trim(string(userAns), " \n\t")
 				answer = strings.Trim(string(rightAns), " \n\t")
 			)
+
 			if output != answer {
 				return &Verdict{
 					OK:                   false,
@@ -281,6 +355,10 @@ func writeToClipboard(s []byte) error {
 	return nil
 }
 
+func init() {
+	loadConfig()
+}
+
 func main() {
 	color.Output = os.Stdout
 	if len(os.Args) < 2 {
@@ -306,7 +384,7 @@ func main() {
 			os.Exit(1)
 		}
 		sourceFile := os.Args[2]
-		verdict, err := testProgram(sourceFile)
+		verdict, err := testSolution(sourceFile)
 		if err != nil {
 			color.Red(err.Error())
 			os.Exit(1)
