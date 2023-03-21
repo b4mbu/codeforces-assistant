@@ -351,6 +351,7 @@ func printVerdict(verdict *Verdict, bench bool) {
 			for i, t := range verdict.AverageExecutingTime {
 				fmt.Printf("Test #%d: %s\n", i+1, t.String())
 			}
+			color.Cyan("Special for github.com/Tnirpps")
 		}
 	} else {
 		color.Red(fmt.Sprintf("Wrong answer at test #%d\n", verdict.TestNumber))
