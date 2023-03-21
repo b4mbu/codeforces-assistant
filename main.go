@@ -28,8 +28,9 @@ var (
 		Compiler: "g++",
 		Standart: "c++17",
 	}
-	greenColor = color.New(color.Bold, color.FgGreen)
-	redColor   = color.New(color.Bold, color.FgRed)
+	greenColor  = color.New(color.Bold, color.FgGreen)
+	redColor    = color.New(color.Bold, color.FgRed)
+	orangeColor = color.New(color.Bold, color.FgYellow)
 )
 
 type Config struct {
@@ -222,45 +223,45 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 	}
 
 	averageExecutingTime := make([]int64, inputFilesCount)
-	execute := func(filename, infile, outfile string) (time.Duration, error) {
-		compile := func(filename, infile, outfile string) (string, string, string, error) {
-			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s --std=%s %s", config.Compiler, config.Standart, filename))
-			if _, err := cmd.Output(); err != nil {
-				return "", "", "", errors.New("error while compiling")
-			}
-			return "./a.out", infile, outfile, nil
+
+	compile := func(filename string) (string, error) {
+		cmd := exec.Command("bash", "-c", fmt.Sprintf("%s --std=%s %s", config.Compiler, config.Standart, filename))
+		if _, err := cmd.Output(); err != nil {
+			return "", errors.New("error while compiling")
 		}
-
-		run := func(filename, infile, outfile string, err error) (string, time.Duration, error) {
-			if err != nil {
-				return "", 0, err
-			}
-
-			startTime := time.Now()
-			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s < %s > %s", filename, infile, outfile))
-			if _, err := cmd.Output(); err != nil {
-				return "", 0, errors.New("error while running")
-			}
-			finishTime := time.Now()
-			return filename, finishTime.Sub(startTime), nil
-		}
-
-		remove := func(filename string, executingTime time.Duration, err error) (time.Duration, error) {
-			if err != nil {
-				return 0, err
-			}
-
-			cmd := exec.Command("bash", "-c", fmt.Sprintf("rm %s", filename))
-			if _, err := cmd.Output(); err != nil {
-				return 0, errors.New("error while removing")
-			}
-			return executingTime, nil
-		}
-
-		return remove(run(compile(filename, infile, outfile)))
+		return "./a.out", nil
 	}
 
-	bar := pb.StartNew(bench * inputFilesCount)
+	remove := func(filename string) error {
+		cmd := exec.Command("bash", "-c", fmt.Sprintf("rm %s", filename))
+		if _, err := cmd.Output(); err != nil {
+			return errors.New("error while removing")
+		}
+		return nil
+	}
+
+	execute := func(filename, infile, outfile string) (time.Duration, error) {
+		startTime := time.Now()
+		cmd := exec.Command("bash", "-c", fmt.Sprintf("%s < %s > %s", filename, infile, outfile))
+		if _, err := cmd.Output(); err != nil {
+			fmt.Println(err)
+			return 0, errors.New("error while running")
+		}
+		finishTime := time.Now()
+		return finishTime.Sub(startTime), nil
+	}
+
+	bar := pb.New(bench * inputFilesCount)
+	execFilename, err := compile(sourceFile)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if bench > 1 {
+		bar.Start()
+		bar.SetWidth(50)
+	}
 
 	for i := 0; i < bench; i++ {
 		for _, file := range files {
@@ -270,7 +271,7 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 				if err != nil {
 					return nil, err
 				}
-				executingTime, err := execute(sourceFile, file.Name(), outfile)
+				executingTime, err := execute(execFilename, file.Name(), outfile)
 				averageExecutingTime[test-1] += executingTime.Nanoseconds()
 				if err != nil {
 					return nil, err
@@ -308,17 +309,29 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 						LinesCorrectnessMask: stringsMatchingMask(output, answer),
 					}, nil
 				}
-				bar.Increment()
+				if bench > 1 {
+					bar.Increment()
+				}
 			}
 		}
 	}
-	bar.Finish()
-
-	resTime := make([]time.Duration, len(averageExecutingTime))
-	for i, t := range averageExecutingTime {
-		resTime[i] = time.Nanosecond * time.Duration(t/int64(bench))
+	err = remove(execFilename)
+	if err != nil {
+		orangeColor.Println(err.Error())
 	}
-	return &Verdict{OK: true, AverageExecutingTime: resTime}, nil
+
+	if bench > 1 {
+		bar.Finish()
+	}
+
+	if bench > 0 {
+		resTime := make([]time.Duration, len(averageExecutingTime))
+		for i, t := range averageExecutingTime {
+			resTime[i] = time.Nanosecond * time.Duration(t/int64(bench))
+		}
+		return &Verdict{OK: true, AverageExecutingTime: resTime}, nil
+	}
+	return &Verdict{OK: true}, nil
 }
 
 func stringsMatchingMask(a, b string) []bool {
@@ -423,12 +436,16 @@ func main() {
 		}
 		sourceFile := os.Args[2]
 
-		benchCount := 1
-		if len(os.Args) == 5 {
+		benchCount := 0
+		if len(os.Args) >= 4 {
 			if os.Args[3] == "-b" {
-				n, err := strconv.Atoi(os.Args[4])
-				if err == nil {
-					benchCount = n
+				if len(os.Args) == 5 {
+					n, err := strconv.Atoi(os.Args[4])
+					if err == nil {
+						benchCount = n
+					}
+				} else {
+					benchCount = 1
 				}
 			}
 		}
