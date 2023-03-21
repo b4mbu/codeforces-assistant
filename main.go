@@ -436,6 +436,7 @@ func main() {
 			color.Red(err.Error())
 			os.Exit(1)
 		}
+
 		printVerdict(verdict, benchCount > 0)
 		if !verdict.OK {
 			os.Exit(1)
