@@ -201,7 +201,7 @@ func createIOFiles(problem *Problem) error {
 	return nil
 }
 
-func testSolution(sourceFile string, bench int) (*Verdict, error) {
+func testSolution(sourceFile string, bench bool, benchCount int) (*Verdict, error) {
 	outfile := "tmp-output.out"
 	res, err := os.Create(outfile)
 	if err != nil {
@@ -251,19 +251,19 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 		return finishTime.Sub(startTime), nil
 	}
 
-	bar := pb.New(bench * inputFilesCount)
+	bar := pb.New(benchCount * inputFilesCount)
 	execFilename, err := compile(sourceFile)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if bench > 1 {
+	if inputFilesCount > 1 {
 		bar.Start()
 		bar.SetWidth(50)
 	}
 
-	for i := 0; i < bench; i++ {
+	for i := 0; i < benchCount; i++ {
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".in") {
 				test, err := strconv.Atoi(strings.TrimSuffix(file.Name(), ".in"))
@@ -309,7 +309,7 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 						LinesCorrectnessMask: stringsMatchingMask(output, answer),
 					}, nil
 				}
-				if bench > 1 {
+				if inputFilesCount > 1 {
 					bar.Increment()
 				}
 			}
@@ -320,14 +320,14 @@ func testSolution(sourceFile string, bench int) (*Verdict, error) {
 		orangeColor.Println(err.Error())
 	}
 
-	if bench > 1 {
+	if inputFilesCount > 1 {
 		bar.Finish()
 	}
 
-	if bench > 0 {
+	if bench {
 		resTime := make([]time.Duration, len(averageExecutingTime))
 		for i, t := range averageExecutingTime {
-			resTime[i] = time.Nanosecond * time.Duration(t/int64(bench))
+			resTime[i] = time.Nanosecond * time.Duration(t/int64(benchCount))
 		}
 		return &Verdict{OK: true, AverageExecutingTime: resTime}, nil
 	}
@@ -436,9 +436,11 @@ func main() {
 		}
 		sourceFile := os.Args[2]
 
-		benchCount := 0
+		benchCount := 1
+		bench := false
 		if len(os.Args) >= 4 {
 			if os.Args[3] == "-b" {
+				bench = true
 				if len(os.Args) == 5 {
 					n, err := strconv.Atoi(os.Args[4])
 					if err == nil {
@@ -450,13 +452,13 @@ func main() {
 			}
 		}
 
-		verdict, err := testSolution(sourceFile, benchCount)
+		verdict, err := testSolution(sourceFile, bench, benchCount)
 		if err != nil {
 			redColor.Println(err.Error())
 			os.Exit(1)
 		}
 
-		printVerdict(verdict, benchCount > 0)
+		printVerdict(verdict, bench)
 		if !verdict.OK {
 			os.Exit(1)
 		}
