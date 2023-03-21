@@ -415,7 +415,7 @@ func main() {
 			redColor.Println(err.Error())
 			os.Exit(1)
 		}
-		greenColor.Printf("Contest %s was loaded.\nGood luck!", contestNumber)
+		greenColor.Printf("Contest %s was loaded.\nGood luck!\n", contestNumber)
 	case "test":
 		if len(os.Args) < 3 {
 			redColor.Println("Source file must be provided")
@@ -453,6 +453,6 @@ func main() {
 			redColor.Println(err.Error())
 			os.Exit(1)
 		}
-		greenColor.Printf("File %s was copied to clipboard", sourceFile)
+		greenColor.Printf("File %s was copied to clipboard\n", sourceFile)
 	}
 }
