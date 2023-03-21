@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/cheggaaa/pb/v3"
 	"github.com/fatih/color"
 	"golang.design/x/clipboard"
 )
@@ -39,6 +42,7 @@ type Verdict struct {
 	Input                string
 	Output               string
 	Answer               string
+	AverageExecutingTime []time.Duration
 	LinesCorrectnessMask []bool
 }
 
@@ -194,7 +198,7 @@ func createIOFiles(problem *Problem) error {
 	return nil
 }
 
-func testSolution(sourceFile string) (*Verdict, error) {
+func testSolution(sourceFile string, bench int) (*Verdict, error) {
 	outfile := "tmp-output.out"
 	res, err := os.Create(outfile)
 	if err != nil {
@@ -208,9 +212,16 @@ func testSolution(sourceFile string) (*Verdict, error) {
 		return nil, err
 	}
 
-	execute := func(filename, infile, outfile string) error {
+	inputFilesCount := 0
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".in") {
+			inputFilesCount++
+		}
+	}
+
+	averageExecutingTime := make([]int64, inputFilesCount)
+	execute := func(filename, infile, outfile string) (time.Duration, error) {
 		compile := func(filename, infile, outfile string) (string, string, string, error) {
-			color.Green("Compiling...")
 			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s --std=%s %s", config.Compiler, config.Standart, filename))
 			if _, err := cmd.Output(); err != nil {
 				return "", "", "", errors.New("error while compiling")
@@ -218,76 +229,94 @@ func testSolution(sourceFile string) (*Verdict, error) {
 			return "./a.out", infile, outfile, nil
 		}
 
-		run := func(filename, infile, outfile string, err error) (string, error) {
+		run := func(filename, infile, outfile string, err error) (string, time.Duration, error) {
 			if err != nil {
-				return "", err
+				return "", 0, err
 			}
 
+			startTime := time.Now()
 			cmd := exec.Command("bash", "-c", fmt.Sprintf("%s < %s > %s", filename, infile, outfile))
 			if _, err := cmd.Output(); err != nil {
-				return "", errors.New("error while running")
+				return "", 0, errors.New("error while running")
 			}
-			return filename, nil
+			finishTime := time.Now()
+			return filename, finishTime.Sub(startTime), nil
 		}
 
-		remove := func(filename string, err error) error {
+		remove := func(filename string, executingTime time.Duration, err error) (time.Duration, error) {
 			if err != nil {
-				return err
+				return 0, err
 			}
 
 			cmd := exec.Command("bash", "-c", fmt.Sprintf("rm %s", filename))
 			if _, err := cmd.Output(); err != nil {
-				return errors.New("error while removing")
+				return 0, errors.New("error while removing")
 			}
-			return nil
+			return executingTime, nil
 		}
 
 		return remove(run(compile(filename, infile, outfile)))
 	}
 
-	for _, file := range files {
-		test := 0
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".in") {
-			test++
+	bar := pb.StartNew(bench * inputFilesCount)
 
-			if err := execute(sourceFile, file.Name(), outfile); err != nil {
-				return nil, err
-			}
+	for i := 0; i < bench; i++ {
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".in") {
+				test, err := strconv.Atoi(strings.TrimSuffix(file.Name(), ".in"))
 
-			userAns, err := ioutil.ReadFile(outfile)
-			if err != nil {
-				return nil, err
-			}
+				if err != nil {
+					return nil, err
+				}
+				executingTime, err := execute(sourceFile, file.Name(), outfile)
+				averageExecutingTime[test-1] += executingTime.Nanoseconds()
+				if err != nil {
+					return nil, err
+				}
 
-			rightAns, err := ioutil.ReadFile(strings.Replace(file.Name(), ".in", ".out", 1))
-			if err != nil {
-				return nil, err
-			}
+				userAns, err := ioutil.ReadFile(outfile)
+				if err != nil {
+					return nil, err
+				}
 
-			inputBytes, err := ioutil.ReadFile(file.Name())
-			if err != nil {
-				return nil, err
-			}
+				rightAns, err := ioutil.ReadFile(strings.Replace(file.Name(), ".in", ".out", 1))
+				if err != nil {
+					return nil, err
+				}
 
-			var (
-				input  = strings.Trim(string(inputBytes), " \n\t")
-				output = strings.Trim(string(userAns), " \n\t")
-				answer = strings.Trim(string(rightAns), " \n\t")
-			)
+				inputBytes, err := ioutil.ReadFile(file.Name())
+				if err != nil {
+					return nil, err
+				}
 
-			if output != answer {
-				return &Verdict{
-					OK:                   false,
-					TestNumber:           test,
-					Input:                input,
-					Output:               output,
-					Answer:               answer,
-					LinesCorrectnessMask: stringsMatchingMask(output, answer),
-				}, nil
+				var (
+					input  = strings.Trim(string(inputBytes), " \n\t")
+					output = strings.Trim(string(userAns), " \n\t")
+					answer = strings.Trim(string(rightAns), " \n\t")
+				)
+
+				if output != answer {
+					bar.Finish()
+					return &Verdict{
+						OK:                   false,
+						TestNumber:           test,
+						Input:                input,
+						Output:               output,
+						Answer:               answer,
+						LinesCorrectnessMask: stringsMatchingMask(output, answer),
+					}, nil
+				}
+				bar.Increment()
 			}
 		}
 	}
-	return &Verdict{OK: true}, nil
+	bar.Finish()
+
+	resTime := make([]time.Duration, len(averageExecutingTime))
+	for i, t := range averageExecutingTime {
+		resTime[i] = time.Nanosecond * time.Duration(t/int64(bench))
+	}
+	return &Verdict{OK: true, AverageExecutingTime: resTime}, nil
 }
 
 func stringsMatchingMask(a, b string) []bool {
@@ -314,9 +343,15 @@ func stringsMatchingMask(a, b string) []bool {
 	return res
 }
 
-func printVerdict(verdict *Verdict) {
+func printVerdict(verdict *Verdict, bench bool) {
 	if verdict.OK {
 		color.Green("OK")
+		if bench {
+			fmt.Println("Average Executing Time:")
+			for i, t := range verdict.AverageExecutingTime {
+				fmt.Printf("Test #%d: %s\n", i+1, t.String())
+			}
+		}
 	} else {
 		color.Red(fmt.Sprintf("Wrong answer at test #%d\n", verdict.TestNumber))
 
@@ -384,12 +419,23 @@ func main() {
 			os.Exit(1)
 		}
 		sourceFile := os.Args[2]
-		verdict, err := testSolution(sourceFile)
+
+		benchCount := 1
+		if len(os.Args) == 5 {
+			if os.Args[3] == "-b" {
+				n, err := strconv.Atoi(os.Args[4])
+				if err == nil {
+					benchCount = n
+				}
+			}
+		}
+
+		verdict, err := testSolution(sourceFile, benchCount)
 		if err != nil {
 			color.Red(err.Error())
 			os.Exit(1)
 		}
-		printVerdict(verdict)
+		printVerdict(verdict, benchCount > 0)
 		if !verdict.OK {
 			os.Exit(1)
 		}
