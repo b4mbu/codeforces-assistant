@@ -28,6 +28,8 @@ var (
 		Compiler: "g++",
 		Standart: "c++17",
 	}
+	greenColor = color.New(color.Bold, color.FgGreen)
+	redColor   = color.New(color.Bold, color.FgRed)
 )
 
 type Config struct {
@@ -345,7 +347,7 @@ func stringsMatchingMask(a, b string) []bool {
 
 func printVerdict(verdict *Verdict, bench bool) {
 	if verdict.OK {
-		color.Green("OK")
+		greenColor.Println("OK")
 		if bench {
 			fmt.Println("Average Executing Time:")
 			for i, t := range verdict.AverageExecutingTime {
@@ -354,7 +356,7 @@ func printVerdict(verdict *Verdict, bench bool) {
 			color.Cyan("Special for github.com/Tnirpps")
 		}
 	} else {
-		color.Red(fmt.Sprintf("Wrong answer at test #%d\n", verdict.TestNumber))
+		redColor.Printf("Wrong answer at test #%d\n", verdict.TestNumber)
 
 		fmt.Printf("Input:\n%s\n", verdict.Input)
 		fmt.Println()
@@ -363,9 +365,9 @@ func printVerdict(verdict *Verdict, bench bool) {
 		outputLines := strings.Split(verdict.Output, "\n")
 		for i, line := range outputLines {
 			if verdict.LinesCorrectnessMask[i] {
-				color.Green(line)
+				greenColor.Println(line)
 			} else {
-				color.Red(line)
+				redColor.Println(line)
 			}
 		}
 		fmt.Println()
@@ -398,25 +400,25 @@ func init() {
 func main() {
 	color.Output = os.Stdout
 	if len(os.Args) < 2 {
-		color.Red("Not enough arguments")
+		redColor.Println("Not enough arguments")
 		os.Exit(1)
 	}
 	command := os.Args[1]
 	switch command {
 	case "contest":
 		if len(os.Args) < 3 {
-			color.Red("No contest number was provided")
+			redColor.Println("No contest number was provided")
 			os.Exit(1)
 		}
 		contestNumber := os.Args[2]
 		if err := loadContest(contestNumber); err != nil {
-			color.Red(err.Error())
+			redColor.Println(err.Error())
 			os.Exit(1)
 		}
-		color.Green(fmt.Sprintf("Contest %s was loaded.\nGood luck!", contestNumber))
+		greenColor.Printf("Contest %s was loaded.\nGood luck!", contestNumber)
 	case "test":
 		if len(os.Args) < 3 {
-			color.Red("Source file must be provided")
+			redColor.Println("Source file must be provided")
 			os.Exit(1)
 		}
 		sourceFile := os.Args[2]
@@ -433,7 +435,7 @@ func main() {
 
 		verdict, err := testSolution(sourceFile, benchCount)
 		if err != nil {
-			color.Red(err.Error())
+			redColor.Println(err.Error())
 			os.Exit(1)
 		}
 
@@ -443,14 +445,14 @@ func main() {
 		}
 	case "copy":
 		if len(os.Args) < 3 {
-			color.Red("Source file must be provided")
+			redColor.Println("Source file must be provided")
 			os.Exit(1)
 		}
 		sourceFile := os.Args[2]
 		if err := writeFileToClipboard(sourceFile); err != nil {
-			color.Red(err.Error())
+			redColor.Println(err.Error())
 			os.Exit(1)
 		}
-		color.Green(fmt.Sprintf("File %s was copied to clipboard", sourceFile))
+		greenColor.Printf("File %s was copied to clipboard", sourceFile)
 	}
 }
