@@ -10,7 +10,7 @@
  ### Contest
  Load contest problems in current directory.
  ```shell
- > acf contest [contest number]
+ > acf contest [contest number from URL]
  ```
 ![contest](https://user-images.githubusercontent.com/49525233/230734288-29420dc7-2513-4e3c-87ce-69ee3ebae621.gif)
  
