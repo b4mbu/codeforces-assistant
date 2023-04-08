@@ -1,10 +1,16 @@
 ## Installation
  - Clone the repository<br>
-   `git clone https://github.com/b4mbu/codeforces-assistant.git`
+   ```sh
+   git clone https://github.com/b4mbu/codeforces-assistant.git
+   ```
  - Build an application<br>
-   `go build -o acf main.go`
+   ```sh
+   go build -o acf main.go
+   ```
  - Add executable file to PATH variable or just move it to */usr/local/bin*<br>
-   `mv ./acf /usr/local/bin`
+   ```sh
+   mv ./acf /usr/local/bin
+   ```
 
 ## Commands:
  ### Contest
